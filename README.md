@@ -1,59 +1,65 @@
-# 참고
-- 해당 저장소는 저의 주요 역할 및 트러블 슈팅을 정리하기 위한 요약본입니다.
-- 전체적인 정보를 위해 원본을 보고 싶으시다면 [Flint](https://github.com/Edurican/Flint)를 클릭해주세요.
-
----
+> [!NOTE]
+> 해당 저장소는 저의 주요 역할 및 트러블 슈팅을 정리하기 위한 요약본입니다.
+> 
+> 전체적인 정보를 위해 원본을 보고 싶으시다면 [Flint](https://github.com/Edurican/Flint)를 클릭해주세요.
 
 ## 목차
 
 1. [프로젝트 개요](#1-프로젝트-개요)
-2. [기술 스택](#2-기술-스택)
-3. [주요 기능](#3-주요-기능)
-4. [트러블 슈팅](#4-트러블-슈팅)
+2. [주요 기능](#2-주요-기능)
+3. [트러블 슈팅](#3-트러블-슈팅)
 
----
-
-## 1. 프로젝트 개요
+# 1. 프로젝트 개요
 
 ### 소개
 
-- 소개
+- 다양한 토픽이 존재하고 짧은 글을 공유할 수 있는 SNS형태의 프로젝트 입니다.
+- 좋아요, 뷰등 다양한 요소에서 인기 있는 게시물을 핫 게시물에 올라가 공유됩니다.
 
-### 목표
+```
+인원: 4명(백엔드 4)
+기간: 2025.11 ~ 2025.12 (1개월)
+목적: 웹 서버에 대한 이해, 클라이언트-서버에 대한 관계 이해, 데이터베이스와의 상호작용 이해
+역할: 사용자 검색 및 팔로우/팔로잉 기능 구현
+기술: Java, Spring Boot, JPA, MySQL, QueryDSL
+```
 
-- 목표
+# 2. 주요 기능
 
-### 인원
+1. **사용자 검색**
+    - 사용자를 검색하면 간략한 프로필을 볼 수 있음
+2. **팔로우/팔로잉**
+    - 사용자간 서로를 팔로우/팔로잉 가능
+    - 사용자간 서로를 언팔로우/언팔로잉 가능
 
-- 인원
-  
-### 기간
+## 3. 트러블 슈팅
 
-- **2026.1.02 ~ 2026.01.05** (1주)
+1. **검색 성능 개선**
+    - 유저의 데이터가 증가함에 따라 검색 병목에 문제를 느낌
+    - DB 실행 계획을 통해 기존 %keyword%이 Full Table Scan되어 병목이 생긴 것을 확인
+    - LIKE%로 결정
+        - full-text index의 경우 불규칙적인 이름이 많기에 적합하지 않음
+        - %이름은 인덱스를 타지 않기에 제외됨
+    - 인덱스 효율이 높은 LIKE%로 적용하여 검색 성능 약 30% 개선
+    <img width="1204" height="228" alt="image" src="https://github.com/user-attachments/assets/301d8a9f-5c9f-4492-8c17-524cdd32cb46" />
+    <img width="1210" height="159" alt="image" src="https://github.com/user-attachments/assets/cdb9f852-7127-4dc6-8e7b-f3c8e4343be5" />
+2. **팔로우/팔로잉 동시성 제어**
+    - 우연의 일치로 서로 팔로잉을 하면 정상동작 하지 않는 것을 발견
+    - 두 트랜잭션이 서로의 User row를 역순으로 잠그면서 순환 대기가 발생하는 것을 확인
+    - 비관적락으로 결정
+        - 낙관적락의 경우 충돌시 재시도 로직이 필요한데 팔로우는 쓰기 중심 작업
+        - 동시 팔로우는 충분히 일어날 수 있는 시나리오이므로 재시도 비용이 아까움
+        - 낙관적락 자체가 데드락을 방지해주는 것이 아니라고 판단
+    - 양쪽 user id 중 작은 id를 항상 먼저 락 획득하도록 순서를 고정하여 순환 대기를 원천 차단함으로써 해결함
+   <img width="1067" height="383" alt="image" src="https://github.com/user-attachments/assets/1f8abe17-8c38-4db6-bf41-a99686902e83" />
+3. **커서 기반 페이지네이션**
+    - 팔로워/팔로잉 목록과 유저 검색 결과를 Offset 방식을 사용할 경우 문제 발생
+        - 페이지네이션하면 뒤 페이지로 갈수록 앞의 m개 행을 스캔하고 버리는 방식이기 때문에 데이터가 많아질수록 선형적으로 느려지는 문제가 있음
+    - OFFSET 1000 LIMIT 20이면 DB는 1020개를 읽고 앞 1000개를 버린 뒤 20개만 반환
+        - SNS 특성상 팔로워 수가 많은 유저의 목록 조회 시 병목 우려
+        - 실시간 데이터 특성상 Offset 방식은 데이터 추가/삭제 시 중복 노출 또는 누락이 발생할 수 있음
+    - ID 기반 커서 페이지네이션기반 조회
+        - 마지막으로 조회한 ID(lastFetchedId)를 커서로 사용
+        - WHERE id < lastFetchedId ORDER BY id DESC LIMIT n 형태로 항상 인덱스를 타는 범위 스캔
+    - 페이지 위치와 무관하게 일정한 쿼리 성능 유지
 
----
-
-## 2. 기술 스택
-
-### 🛠️ 기술 스택
-
-#### Backend
-![Java](https://img.shields.io/badge/Java-17-orange) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5-green) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue) ![Redis](https://img.shields.io/badge/Redis-7-red)
-
-#### Frontend
- ![Vue.js](https://img.shields.io/badge/Vue.js-3.5-4FC08D) ![Vite](https://img.shields.io/badge/Vite-6-646CFF) ![Pinia](https://img.shields.io/badge/Pinia-3-yellow) ![ElementPlus](https://img.shields.io/badge/Element%20Plus-2.9-409EFF)
-
-#### 외부 API
- ![Kakao Map](https://img.shields.io/badge/Kakao%20Map-API-FFCD00)
-
-## 3. 주요 기능
-
-1. **주요 기능**
-   - 기능 설명
-          
----
-
-## 4. 트러블 슈팅
-
-1. **트러블 슈팅**
-   - 트러블 슈팅 설명
